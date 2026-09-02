@@ -1,0 +1,69 @@
+name: burst watch (10:00 JST)
+
+# 配布は 10:00 JST に集中するため、その前後を1分間隔で張り込む。
+#
+# GitHub Actions の schedule は「数分」ではなく「数時間」ずれることがある。
+# 実測（2026-09-01・private リポジトリ）では 00:47 UTC 予定の回が 05:44 UTC に作成され、
+# 約5時間の遅延だった。さらに予定された回そのものが間引かれることもある。
+#   → 対策1: 起動を張り込み窓よりずっと早く（08:38 JST）に置き、
+#            ジョブの中で 09:50 まで待ってから 1分間隔で回す（--loop-from / --loop-until）。
+#            これで起動が最大70分ずれても 09:50 の張り込み開始に間に合う。
+#   → 対策2: それでも間に合わなかった場合、main.py は翌日まで待たずに
+#            1回だけ巡回して終了する（ジョブが何時間も居座らないように）。
+#   → 対策3: --max-minutes で待機込みの上限をかける。
+#
+# 遅延を実用範囲まで縮めるにはリポジトリを public にすること。
+# private の無料プランは scheduled workflow が大きく後回しにされる。
+on:
+  schedule:
+    - cron: "38 23 * * *"
+  workflow_dispatch:
+    inputs:
+      loop_from:
+        description: "JSTの張り込み開始時刻 HH:MM（空なら即開始）"
+        type: string
+        default: "09:50"
+      loop_until:
+        description: "JSTの終了時刻 HH:MM"
+        type: string
+        default: "10:35"
+      interval_sec:
+        description: "巡回間隔（秒）"
+        type: string
+        default: "60"
+      dry_run:
+        description: "メールを送らず標準出力に出す"
+        type: boolean
+        default: false
+
+concurrency:
+  group: jalan-watch
+  cancel-in-progress: false
+
+jobs:
+  burst:
+    runs-on: ubuntu-latest
+    timeout-minutes: 140
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 張り込み巡回
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MIN_DISCOUNT_YEN: ${{ vars.MIN_DISCOUNT_YEN }}
+          NOTIFY_ON_SOLD_OUT: ${{ vars.NOTIFY_ON_SOLD_OUT }}
+        run: >
+          python -m jalan_watcher.main
+          --loop-from "${{ inputs.loop_from || '09:50' }}"
+          --loop-until "${{ inputs.loop_until || '10:35' }}"
+          --interval-sec "${{ inputs.interval_sec || '60' }}"
+          --max-minutes 125
+          ${{ inputs.dry_run && '--dry-run' || '' }}

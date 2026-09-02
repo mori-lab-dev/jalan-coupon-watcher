@@ -1,0 +1,46 @@
+name: baseline watch
+
+# ベースライン監視。2時間おきに1回だけ巡回する。
+# cron は UTC。混雑を避けるため :00 ではなく :17 にずらしている。
+on:
+  schedule:
+    - cron: "17 */2 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "メールを送らず標準出力に出す"
+        type: boolean
+        default: false
+      seed:
+        description: "通知せず現状をDBへ取り込む（初回用）"
+        type: boolean
+        default: false
+
+concurrency:
+  group: jalan-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 巡回
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MIN_DISCOUNT_YEN: ${{ vars.MIN_DISCOUNT_YEN }}
+          NOTIFY_ON_SOLD_OUT: ${{ vars.NOTIFY_ON_SOLD_OUT }}
+        run: >
+          python -m jalan_watcher.main
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+          ${{ inputs.seed && '--seed' || '' }}

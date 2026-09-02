@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+
+# 調査メモはリポジトリに入れない（公開リポジトリのため）
+docs/
+*research*.md
+*.html
+*.utf8.html
+tmp/
