@@ -2,21 +2,25 @@ name: burst watch (10:00 JST)
 
 # 配布は 10:00 JST に集中するため、その前後を1分間隔で張り込む。
 #
-# GitHub Actions の schedule は「数分」ではなく「数時間」ずれることがある。
-# 実測（2026-09-01・private リポジトリ）では 00:47 UTC 予定の回が 05:44 UTC に作成され、
-# 約5時間の遅延だった。さらに予定された回そのものが間引かれることもある。
-#   → 対策1: 起動を張り込み窓よりずっと早く（08:38 JST）に置き、
+# GitHub Actions の schedule は「数分」ではなく「数十分〜数時間」ずれる。
+# 実測:
+#   private (2026-09-01): 00:47 UTC 予定の回が 05:44 UTC 作成。約5時間の遅延
+#   public  (2026-09-02): 10:17 UTC 予定の回が 11:27 UTC 作成。約70分の遅延
+#                         さらに 06:17 と 08:17 の枠は発火せず間引かれた
+# public にしても遅延と間引きは残るため、それを前提に組む。
+#   → 対策1: 起動を張り込み窓よりずっと早く（07:38 JST）に置き、
 #            ジョブの中で 09:50 まで待ってから 1分間隔で回す（--loop-from / --loop-until）。
-#            これで起動が最大70分ずれても 09:50 の張り込み開始に間に合う。
+#            余裕は132分。実測70分の遅延に対しておよそ2倍の幅をとってある。
 #   → 対策2: それでも間に合わなかった場合、main.py は翌日まで待たずに
 #            1回だけ巡回して終了する（ジョブが何時間も居座らないように）。
 #   → 対策3: --max-minutes で待機込みの上限をかける。
 #
-# 遅延を実用範囲まで縮めるにはリポジトリを public にすること。
-# private の無料プランは scheduled workflow が大きく後回しにされる。
+# 待機時間が伸びるぶんジョブの占有は長くなるが、public は実行時間が無制限なので
+# 実害はない。枠ごと間引かれた場合だけはどうにもならないので、
+# 大事な日は workflow_dispatch で手動起動する。
 on:
   schedule:
-    - cron: "38 23 * * *"
+    - cron: "38 22 * * *"
   workflow_dispatch:
     inputs:
       loop_from:
@@ -43,7 +47,7 @@ concurrency:
 jobs:
   burst:
     runs-on: ubuntu-latest
-    timeout-minutes: 140
+    timeout-minutes: 200
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -64,5 +68,5 @@ jobs:
           --loop-from "${{ inputs.loop_from || '09:50' }}"
           --loop-until "${{ inputs.loop_until || '10:35' }}"
           --interval-sec "${{ inputs.interval_sec || '60' }}"
-          --max-minutes 125
+          --max-minutes 185
           ${{ inputs.dry_run && '--dry-run' || '' }}
