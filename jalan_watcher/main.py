@@ -157,9 +157,8 @@ def run_once(cfg: Config, store: Store, *, seed: bool) -> int:
             try:
                 subject = send(
                     events=events,
-                    gmail_user=cfg.gmail_user,
-                    gmail_password=cfg.gmail_password,
-                    mail_to=cfg.mail_to,
+                    supabase_url=cfg.supabase_url,
+                    supabase_key=cfg.supabase_key,
                     dry_run=cfg.dry_run,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -235,16 +234,15 @@ def main(argv: list[str] | None = None) -> int:
         cfg.dry_run = True
 
     if args.check_mail:
-        if not cfg.gmail_user or not cfg.gmail_password:
-            log.error("GMAIL_USER と GMAIL_APP_PASSWORD が要ります")
+        if not cfg.supabase_url or not cfg.supabase_key:
+            log.error("SUPABASE_URL と SUPABASE_SERVICE_ROLE_KEY が要ります")
             return 2
-        log.info("送信元 %s / パスワード長 %d文字", cfg.gmail_user, len(cfg.gmail_password))
         try:
-            check_login(cfg.gmail_user, cfg.gmail_password)
+            check_login(cfg.supabase_url, cfg.supabase_key)
         except Exception as exc:  # noqa: BLE001
             log.error("%s", exc)
             return 1
-        log.info("Gmail にログインできました")
+        log.info("notify-jalan 経由でメール送信できました")
         return 0
 
     missing = cfg.missing()

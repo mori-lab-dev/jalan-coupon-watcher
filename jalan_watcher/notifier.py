@@ -1,24 +1,27 @@
-"""Gmail SMTP でのメール通知。
+"""notify-jalan Edge Function 経由でのメール通知。
 
 件名だけで内容が分かるように「地域・割引額・先着数」を先頭に置く。本文には
 クーポンページへの直リンクを入れるが、「獲得する」操作は必ず利用者本人が
 手動で行う（自動獲得は規約違反のため実装しない）。
+
+送信の実体（Gmail SMTP 認証情報）は Edge Function 側に一本化してある。
+2026-09-02: GitHub Actions から Gmail SMTP を直接叩く方式は、GMAIL_USER が
+誤って別アカウントのアドレスのまま設定されており常に535 Bad Credentials に
+なっていた。認証情報を呼び出し元から切り離すことで再発を防ぐ。
 """
 
 from __future__ import annotations
 
 import html
 import logging
-import smtplib
+import urllib.error
+import urllib.request
+import json as json_lib
 from dataclasses import dataclass, field
-from email.message import EmailMessage
 
 from .parser import Coupon
 
 log = logging.getLogger(__name__)
-
-SMTP_HOST = "smtp.gmail.com"
-SMTP_PORT = 465
 
 KIND_LABEL = {
     "new": "新規",
@@ -151,28 +154,56 @@ def build_body(events: list[Event]) -> tuple[str, str]:
     return text, body_html
 
 
-def check_login(gmail_user: str, gmail_password: str) -> None:
-    """SMTP のログインだけを試す。失敗したら理由を添えて投げ直す。"""
-    try:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
-            smtp.login(gmail_user, gmail_password)
-    except smtplib.SMTPAuthenticationError as exc:
+def check_login(supabase_url: str, supabase_key: str) -> None:
+    """notify-jalan Edge Function に到達でき、送信まで通るかを確かめる。
+
+    Edge Function側の認証情報(GMAIL_*)はここでは検証できないため、実際に
+    軽いテストメールを1通送って mailed=true が返ることで確認する。
+    """
+    r = _call_edge_function(
+        supabase_url, supabase_key,
+        subject="【疎通確認】notify-jalan --check-mail",
+        text="jalan_watcher --check-mail からのテスト送信です。実際の通知ではありません。",
+    )
+    if not r.get("mailed"):
         raise RuntimeError(
-            f"Gmail の認証に失敗しました（{exc.smtp_code}）。次を確認してください:\n"
-            f"  1. GMAIL_USER が送信元アドレスそのものか（今は {gmail_user!r}）\n"
-            "  2. GMAIL_APP_PASSWORD が「アプリパスワード」16文字か\n"
-            "     （通常のログインパスワードでは通りません）\n"
-            "  3. アプリパスワードが失効していないか。心当たりがなければ再発行する\n"
-            "     https://myaccount.google.com/apppasswords"
-        ) from exc
+            f"notify-jalan からの送信に失敗しました: {r.get('error')}\n"
+            "  Edge Function側のシークレット(GMAIL_USER/GMAIL_APP_PASSWORD/MAIL_TO)を"
+            "確認してください（jalanプロジェクトの Supabase secrets）。"
+        )
+
+
+def _call_edge_function(supabase_url: str, supabase_key: str, *, subject: str,
+                         text: str, body_html: str | None = None) -> dict:
+    url = f"{supabase_url}/functions/v1/notify-jalan"
+    payload = {"subject": subject, "text": text}
+    if body_html:
+        payload["html"] = body_html
+    req = urllib.request.Request(
+        url,
+        data=json_lib.dumps(payload).encode("utf-8"),
+        headers={
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json_lib.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"notify-jalan呼び出しに失敗(HTTP {exc.code}): {body[:300]}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"notify-jalanに接続できません: {exc}") from exc
 
 
 def send(
     *,
     events: list[Event],
-    gmail_user: str,
-    gmail_password: str,
-    mail_to: list[str],
+    supabase_url: str,
+    supabase_key: str,
     dry_run: bool = False,
 ) -> str:
     subject = build_subject(events)
@@ -184,19 +215,9 @@ def send(
         print(text)
         return subject
 
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = gmail_user
-    msg["To"] = ", ".join(mail_to)
-    msg.set_content(text)
-    msg.add_alternative(body_html, subtype="html")
-
-    try:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
-            smtp.login(gmail_user, gmail_password)
-            smtp.send_message(msg)
-    except smtplib.SMTPAuthenticationError:
-        check_login(gmail_user, gmail_password)  # 分かりやすい文言に置き換えて投げ直す
-        raise
-    log.info("メール送信: %s -> %s", subject, mail_to)
+    result = _call_edge_function(supabase_url, supabase_key, subject=subject,
+                                  text=text, body_html=body_html)
+    if not result.get("mailed"):
+        raise RuntimeError(f"notify-jalan がメール送信に失敗: {result.get('error')}")
+    log.info("メール送信: %s", subject)
     return subject

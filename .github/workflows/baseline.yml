@@ -36,12 +36,12 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: 巡回
+        # Gmail認証情報(GMAIL_USER/GMAIL_APP_PASSWORD/MAIL_TO)は
+        # notify-jalan Edge Function側のシークレットに一本化した(2026-09-02)。
+        # ここでは Supabase の接続情報だけを渡す。
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GMAIL_USER: ${{ secrets.GMAIL_USER }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          MAIL_TO: ${{ secrets.MAIL_TO }}
           MIN_DISCOUNT_YEN: ${{ vars.MIN_DISCOUNT_YEN }}
           NOTIFY_ON_SOLD_OUT: ${{ vars.NOTIFY_ON_SOLD_OUT }}
         run: >

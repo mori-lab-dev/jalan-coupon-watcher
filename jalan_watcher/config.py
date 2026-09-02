@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import os
-import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -57,9 +56,6 @@ def _float(name: str, default: float) -> float:
 class Config:
     supabase_url: str = ""
     supabase_key: str = ""
-    gmail_user: str = ""
-    gmail_password: str = ""
-    mail_to: list[str] = field(default_factory=list)
     min_discount_yen: int = 0
     notify_on_sold_out: bool = False
     dry_run: bool = False
@@ -67,20 +63,9 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
-        gmail_user = os.environ.get("GMAIL_USER", "").strip()
-        raw_to = os.environ.get("MAIL_TO", "").strip()
-        mail_to = [a.strip() for a in raw_to.split(",") if a.strip()] or (
-            [gmail_user] if gmail_user else []
-        )
         return cls(
             supabase_url=os.environ.get("SUPABASE_URL", "").strip().rstrip("/"),
             supabase_key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip(),
-            gmail_user=gmail_user,
-            # アプリパスワードは英数16文字。Googleの画面は "abcd efgh ijkl mnop" と
-            # 4桁ずつ空けて表示するうえ、Secret 登録時に改行が紛れ込むこともある。
-            # そのまま渡すと 535 BadCredentials になるので空白類を全部落とす。
-            gmail_password=re.sub(r"\s+", "", os.environ.get("GMAIL_APP_PASSWORD", "")),
-            mail_to=mail_to,
             min_discount_yen=_int("MIN_DISCOUNT_YEN", 0),
             notify_on_sold_out=_bool("NOTIFY_ON_SOLD_OUT", False),
             dry_run=_bool("DRY_RUN", False),
@@ -88,17 +73,17 @@ class Config:
         )
 
     def missing(self) -> list[str]:
-        """未設定の必須項目を返す。DRY_RUN 時はメール設定を必須にしない。"""
+        """未設定の必須項目を返す。
+
+        Gmail認証情報(GMAIL_USER/GMAIL_APP_PASSWORD/MAIL_TO)は Edge Function
+        (notify-jalan)側のシークレットに一本化したため、ここでは持たない。
+        2026-09-02: GitHub Actions側にGMAIL_USERが誤って別アカウントの
+        アドレスのまま設定されており、常に535 Bad Credentialsになっていた
+        不具合の再発防止（認証情報を1箇所に集約する）。
+        """
         missing: list[str] = []
         if not self.supabase_url:
             missing.append("SUPABASE_URL")
         if not self.supabase_key:
             missing.append("SUPABASE_SERVICE_ROLE_KEY")
-        if not self.dry_run:
-            if not self.gmail_user:
-                missing.append("GMAIL_USER")
-            if not self.gmail_password:
-                missing.append("GMAIL_APP_PASSWORD")
-            if not self.mail_to:
-                missing.append("MAIL_TO")
         return missing
