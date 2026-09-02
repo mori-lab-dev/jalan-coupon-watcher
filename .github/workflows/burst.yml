@@ -2,25 +2,32 @@ name: burst watch (10:00 JST)
 
 # 配布は 10:00 JST に集中するため、その前後を1分間隔で張り込む。
 #
-# GitHub Actions の schedule は「数分」ではなく「数十分〜数時間」ずれる。
-# 実測:
-#   private (2026-09-01): 00:47 UTC 予定の回が 05:44 UTC 作成。約5時間の遅延
-#   public  (2026-09-02): 10:17 UTC 予定の回が 11:27 UTC 作成。約70分の遅延
-#                         さらに 06:17 と 08:17 の枠は発火せず間引かれた
-# public にしても遅延と間引きは残るため、それを前提に組む。
-#   → 対策1: 起動を張り込み窓よりずっと早く（07:38 JST）に置き、
-#            ジョブの中で 09:50 まで待ってから 1分間隔で回す（--loop-from / --loop-until）。
-#            余裕は132分。実測70分の遅延に対しておよそ2倍の幅をとってある。
-#   → 対策2: それでも間に合わなかった場合、main.py は翌日まで待たずに
-#            1回だけ巡回して終了する（ジョブが何時間も居座らないように）。
-#   → 対策3: --max-minutes で待機込みの上限をかける。
+# GitHub Actions の schedule は当てにならない。実測（2026-09-02・public）:
+#   予定 06:17 UTC → 発火せず
+#   予定 08:17 UTC → 発火せず
+#   予定 10:17 UTC → 11:27 UTC 作成（約70分の遅延）
+#   予定 12:17 UTC → 64分経っても発火せず
+# 4枠中で確実に走ったのは1枠だけ。private時代（00:47予定が05:44作成＝約5時間）
+# よりは縮んだが、public でも「遅れる」だけでなく「そもそも来ない」。
 #
-# 待機時間が伸びるぶんジョブの占有は長くなるが、public は実行時間が無制限なので
-# 実害はない。枠ごと間引かれた場合だけはどうにもならないので、
-# 大事な日は workflow_dispatch で手動起動する。
+# そこで2段構えにしてある。
+#   対策A（遅延対策）: 起動を張り込み窓よりずっと早く置き、ジョブの中で
+#     09:50 まで待ってから1分間隔で回す（--loop-from / --loop-until）。
+#     いちばん遅い 08:08 JST 起動でも、70分ずれて 09:18 なので窓に間に合う。
+#   対策B（間引き対策）: 起動を3本に散らす。どれか1本でも発火すれば張り込める。
+#     concurrency で直列化してあるので、2本目以降が走っても
+#     窓を過ぎていれば main.py が1回巡回して即終了する（対策C）。
+#   対策C: 窓を過ぎて起動したら翌日まで待たず1回で終える。
+#   対策D: --max-minutes で待機込みの上限をかける。
+#
+# public は実行時間が無制限なので、待機が伸びても占有が増えても実害はない。
+# 3本とも間引かれる日はさすがに救えないので、絶対に落とせない日は
+# workflow_dispatch で手動起動する（手動は遅延なしで即走る）。
 on:
   schedule:
-    - cron: "38 22 * * *"
+    - cron: "38 21 * * *"   # 06:38 JST
+    - cron: "38 22 * * *"   # 07:38 JST
+    - cron: "08 23 * * *"   # 08:08 JST
   workflow_dispatch:
     inputs:
       loop_from:
@@ -47,7 +54,7 @@ concurrency:
 jobs:
   burst:
     runs-on: ubuntu-latest
-    timeout-minutes: 200
+    timeout-minutes: 260
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -68,5 +75,5 @@ jobs:
           --loop-from "${{ inputs.loop_from || '09:50' }}"
           --loop-until "${{ inputs.loop_until || '10:35' }}"
           --interval-sec "${{ inputs.interval_sec || '60' }}"
-          --max-minutes 185
+          --max-minutes 245
           ${{ inputs.dry_run && '--dry-run' || '' }}
