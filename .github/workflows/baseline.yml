@@ -15,6 +15,10 @@ on:
         description: "通知せず現状をDBへ取り込む（初回用）"
         type: boolean
         default: false
+      check_mail:
+        description: "巡回せず、Gmailにログインできるかだけ確かめる"
+        type: boolean
+        default: false
 
 concurrency:
   group: jalan-watch
@@ -44,3 +48,4 @@ jobs:
           python -m jalan_watcher.main
           ${{ inputs.dry_run && '--dry-run' || '' }}
           ${{ inputs.seed && '--seed' || '' }}
+          ${{ inputs.check_mail && '--check-mail' || '' }}

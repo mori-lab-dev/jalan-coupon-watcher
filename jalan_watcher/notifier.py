@@ -151,6 +151,22 @@ def build_body(events: list[Event]) -> tuple[str, str]:
     return text, body_html
 
 
+def check_login(gmail_user: str, gmail_password: str) -> None:
+    """SMTP のログインだけを試す。失敗したら理由を添えて投げ直す。"""
+    try:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
+            smtp.login(gmail_user, gmail_password)
+    except smtplib.SMTPAuthenticationError as exc:
+        raise RuntimeError(
+            f"Gmail の認証に失敗しました（{exc.smtp_code}）。次を確認してください:\n"
+            f"  1. GMAIL_USER が送信元アドレスそのものか（今は {gmail_user!r}）\n"
+            "  2. GMAIL_APP_PASSWORD が「アプリパスワード」16文字か\n"
+            "     （通常のログインパスワードでは通りません）\n"
+            "  3. アプリパスワードが失効していないか。心当たりがなければ再発行する\n"
+            "     https://myaccount.google.com/apppasswords"
+        ) from exc
+
+
 def send(
     *,
     events: list[Event],
@@ -175,8 +191,12 @@ def send(
     msg.set_content(text)
     msg.add_alternative(body_html, subtype="html")
 
-    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
-        smtp.login(gmail_user, gmail_password)
-        smtp.send_message(msg)
+    try:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
+            smtp.login(gmail_user, gmail_password)
+            smtp.send_message(msg)
+    except smtplib.SMTPAuthenticationError:
+        check_login(gmail_user, gmail_password)  # 分かりやすい文言に置き換えて投げ直す
+        raise
     log.info("メール送信: %s -> %s", subject, mail_to)
     return subject

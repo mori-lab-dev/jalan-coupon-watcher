@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 
 USER_AGENT = (
@@ -75,7 +76,10 @@ class Config:
             supabase_url=os.environ.get("SUPABASE_URL", "").strip().rstrip("/"),
             supabase_key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip(),
             gmail_user=gmail_user,
-            gmail_password=os.environ.get("GMAIL_APP_PASSWORD", "").strip(),
+            # アプリパスワードは英数16文字。Googleの画面は "abcd efgh ijkl mnop" と
+            # 4桁ずつ空けて表示するうえ、Secret 登録時に改行が紛れ込むこともある。
+            # そのまま渡すと 535 BadCredentials になるので空白類を全部落とす。
+            gmail_password=re.sub(r"\s+", "", os.environ.get("GMAIL_APP_PASSWORD", "")),
             mail_to=mail_to,
             min_discount_yen=_int("MIN_DISCOUNT_YEN", 0),
             notify_on_sold_out=_bool("NOTIFY_ON_SOLD_OUT", False),

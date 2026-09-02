@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 from .config import Config, region_name
 from .fetcher import fetch_html, fetch_region_links, new_session
-from .notifier import Event, send
+from .notifier import Event, check_login, send
 from .parser import HASHED_FIELDS, Coupon, parse_coupon_page
 from .store import Store
 
@@ -206,6 +206,11 @@ def run_once(cfg: Config, store: Store, *, seed: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="じゃらんクーポン監視（検知・通知のみ）")
+    ap.add_argument(
+        "--check-mail",
+        action="store_true",
+        help="巡回せず、Gmail にログインできるかだけを確かめる",
+    )
     ap.add_argument("--seed", action="store_true", help="通知せず現状をDBへ取り込む")
     ap.add_argument("--dry-run", action="store_true", help="メールを送らず標準出力に出す")
     ap.add_argument("--loop-from", metavar="HH:MM", help="このJST時刻まで待ってから巡回を始める")
@@ -228,6 +233,20 @@ def main(argv: list[str] | None = None) -> int:
     cfg = Config.from_env()
     if args.dry_run:
         cfg.dry_run = True
+
+    if args.check_mail:
+        if not cfg.gmail_user or not cfg.gmail_password:
+            log.error("GMAIL_USER と GMAIL_APP_PASSWORD が要ります")
+            return 2
+        log.info("送信元 %s / パスワード長 %d文字", cfg.gmail_user, len(cfg.gmail_password))
+        try:
+            check_login(cfg.gmail_user, cfg.gmail_password)
+        except Exception as exc:  # noqa: BLE001
+            log.error("%s", exc)
+            return 1
+        log.info("Gmail にログインできました")
+        return 0
+
     missing = cfg.missing()
     if missing:
         log.error("環境変数が未設定です: %s", ", ".join(missing))
