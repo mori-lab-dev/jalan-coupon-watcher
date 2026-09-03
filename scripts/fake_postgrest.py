@@ -16,8 +16,10 @@ import re
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
-STORE: dict[str, dict] = {}
-RUNS: list[dict] = []
+# テーブル名 -> 主キー列。ここに無いテーブルは追記だけの記録用とみなす。
+KEYED = {"jalan_coupons": "coupon_id", "jalan_listing": "listing_id"}
+STORE: dict[str, dict[str, dict]] = {t: {} for t in KEYED}
+APPENDED: dict[str, list[dict]] = {}
 IN_RE = re.compile(r"^in\.\((.*)\)$")
 
 
@@ -37,19 +39,25 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         query = parse_qs(url.query)
         table = url.path.rsplit("/", 1)[-1]
-        raw = (query.get("coupon_id") or [""])[0]
-        print(f"[GET ] {table} coupon_id={raw[:120]}{'…' if len(raw) > 120 else ''}")
-
-        if table != "jalan_coupons":
+        pk = KEYED.get(table)
+        if pk is None:
+            print(f"[GET ] {table} （記録用テーブル）")
             return self._json(200, [])
 
+        rows = STORE[table]
+        raw = (query.get(pk) or [""])[0]
+        if not raw:  # 絞り込みなし＝全件（jalan_listing はこの形で読む）
+            print(f"[GET ] {table} 全件 -> {len(rows)}件")
+            return self._json(200, list(rows.values()))
+
+        print(f"[GET ] {table} {pk}={raw[:110]}{'…' if len(raw) > 110 else ''}")
         m = IN_RE.match(raw)
         if not m:
             print("       !! in.(...) の形になっていない")
             return self._json(200, [])
         ids = [v.strip().strip('"') for v in m.group(1).split(",") if v.strip()]
-        print(f"       -> {len(ids)}件を問い合わせ / 既知 {sum(1 for i in ids if i in STORE)}件")
-        self._json(200, [STORE[i] for i in ids if i in STORE])
+        print(f"       -> {len(ids)}件を問い合わせ / 既知 {sum(1 for i in ids if i in rows)}件")
+        self._json(200, [rows[i] for i in ids if i in rows])
 
     def do_POST(self) -> None:  # noqa: N802
         url = urlparse(self.path)
@@ -63,19 +71,21 @@ class Handler(BaseHTTPRequestHandler):
             f"on_conflict={query.get('on_conflict', ['-'])[0]} Prefer={prefer}"
         )
 
-        if table == "jalan_watch_runs":
-            RUNS.append(rows[0])
-            print(f"       -> {json.dumps(rows[0], ensure_ascii=False)}")
+        pk = KEYED.get(table)
+        if pk is None:  # 追記だけの記録用（jalan_watch_runs / jalan_delist_checks）
+            APPENDED.setdefault(table, []).extend(rows)
+            for r in rows:
+                print(f"       -> {json.dumps(r, ensure_ascii=False)[:220]}")
             return self._json(201, [])
 
         if "merge-duplicates" not in prefer:
             print("       !! upsert の Prefer が付いていない")
         for row in rows:
-            if "coupon_id" not in row:
-                print("       !! coupon_id が無い行がある")
+            if pk not in row:
+                print(f"       !! {pk} が無い行がある")
                 continue
-            STORE[row["coupon_id"]] = row
-        print(f"       -> 保存後の総件数 {len(STORE)}")
+            STORE[table][row[pk]] = row
+        print(f"       -> {table} 保存後の総件数 {len(STORE[table])}")
         self._json(201, [])
 
 

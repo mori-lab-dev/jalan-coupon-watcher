@@ -60,6 +60,11 @@ class Config:
     notify_on_sold_out: bool = False
     dry_run: bool = False
     request_delay_sec: float = 1.5
+    # 一覧監視（Phase 2）。クーポンフェスの10地域巡回とは独立に並走させる
+    watch_listing: bool = True
+    listing_min_yen: int = 30000
+    listing_max_pages: int = 4
+    listing_max_details: int = 12
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -70,6 +75,10 @@ class Config:
             notify_on_sold_out=_bool("NOTIFY_ON_SOLD_OUT", False),
             dry_run=_bool("DRY_RUN", False),
             request_delay_sec=_float("REQUEST_DELAY_SEC", 1.5),
+            watch_listing=_bool("WATCH_LISTING", True),
+            listing_min_yen=_int("LISTING_MIN_YEN", 30000),
+            listing_max_pages=_int("LISTING_MAX_PAGES", 4),
+            listing_max_details=_int("LISTING_MAX_DETAILS", 12),
         )
 
     def missing(self) -> list[str]:

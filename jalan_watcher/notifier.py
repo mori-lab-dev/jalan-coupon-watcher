@@ -50,6 +50,11 @@ def _stock(c: Coupon) -> str:
     return f"先着{c.stock}" if c.stock is not None else "先着数不明"
 
 
+def _who(c: Coupon) -> str:
+    """件名の頭に出す名前。施設クーポンなら宿名、地域ものならエリア名。"""
+    return (c.hotel_name or c.region_name or c.area_name or "じゃらん").strip()
+
+
 def build_subject(events: list[Event]) -> str:
     gettable = [e for e in events if e.is_gettable]
     target = gettable or events
@@ -59,13 +64,13 @@ def build_subject(events: list[Event]) -> str:
 
     if len(target) == 1:
         if head.is_gettable:
-            return f"【{c.region_name}】{_amount(c)}クーポン出現（{_stock(c)}）"
-        return f"【{c.region_name}】{_amount(c)}クーポン{KIND_LABEL.get(head.kind, head.kind)}"
+            return f"【{_who(c)}】{_amount(c)}クーポン出現（{_stock(c)}）"
+        return f"【{_who(c)}】{_amount(c)}クーポン{KIND_LABEL.get(head.kind, head.kind)}"
 
     regions = []
     for e in target:
-        if e.coupon.region_name not in regions:
-            regions.append(e.coupon.region_name)
+        if _who(e.coupon) not in regions:
+            regions.append(_who(e.coupon))
     region_part = regions[0] + ("ほか" if len(regions) > 1 else "")
     verb = "出現" if gettable else KIND_LABEL.get(head.kind, "更新")
     return f"【じゃらん】最大{_amount(c)}クーポン{verb}（{region_part}計{len(target)}件）"
@@ -75,8 +80,16 @@ def _lines_for(e: Event) -> list[str]:
     c = e.coupon
     state = "配布中（獲得可）" if c.is_available else "配布終了"
     lines = [
-        f"■ [{KIND_LABEL.get(e.kind, e.kind)}] {c.region_name} / {_amount(c)} / {_stock(c)}",
+        f"■ [{KIND_LABEL.get(e.kind, e.kind)}] {_who(c)} / {_amount(c)} / {_stock(c)}",
         f"   状態     : {state}",
+    ]
+    if c.title:
+        lines.append(f"   クーポン : {c.title}")
+    if c.hotel_name:
+        lines.append(f"   宿       : {c.hotel_name}（{c.area_name or 'エリア不明'}）")
+    if c.usable_plans:
+        lines.append(f"   対象プラン: {c.usable_plans}")
+    lines += [
         f"   利用条件 : {c.conditions or '記載なし'}",
         f"   配布期間 : {c.distribute_period or '記載なし'}",
         f"   予約期間 : {c.reserve_period or '記載なし'}",
@@ -119,13 +132,16 @@ def build_body(events: list[Event]) -> tuple[str, str]:
             f"""
 <div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin:0 0 12px">
   <div style="font-size:13px;color:{badge};font-weight:bold">
-    [{html.escape(KIND_LABEL.get(e.kind, e.kind))}] {html.escape(c.region_name)}
+    [{html.escape(KIND_LABEL.get(e.kind, e.kind))}] {html.escape(_who(c))}
   </div>
+  {f'<div style="font-size:14px;margin-top:2px">{html.escape(c.title)}</div>' if c.title else ''}
   <div style="font-size:22px;font-weight:bold;margin:4px 0">
     {html.escape(_amount(c))} <span style="font-size:14px;font-weight:normal">/ {html.escape(_stock(c))}</span>
   </div>
   <div style="font-size:14px;margin-bottom:6px">状態: {html.escape(state)}</div>
   <div style="font-size:13px;line-height:1.7">
+    {f"宿: {html.escape(c.hotel_name)}（{html.escape(c.area_name or 'エリア不明')}）<br>" if c.hotel_name else ""}
+    {f"対象プラン: {html.escape(c.usable_plans)}<br>" if c.usable_plans else ""}
     利用条件: {html.escape(c.conditions or '記載なし')}<br>
     配布期間: {html.escape(c.distribute_period or '記載なし')}<br>
     予約期間: {html.escape(c.reserve_period or '記載なし')}<br>

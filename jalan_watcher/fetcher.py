@@ -12,6 +12,7 @@ import time
 import requests
 
 from .config import COUPON_JSON_URL, USER_AGENT
+from .listing import LIST_URL
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +54,22 @@ def fetch_region_links(session: requests.Session) -> dict[str, str]:
     if not isinstance(data, dict):
         raise RuntimeError(f"coupon.json の形式が想定外です: {type(data)}")
     return {str(k): str(v) for k, v in data.items() if v}
+
+
+def fetch_listing_page(session: requests.Session, params: dict[str, str]) -> str:
+    """クーポン一覧を1ページ取得する。GETのみ。"""
+    last: Exception | None = None
+    for attempt in range(1, RETRIES + 1):
+        try:
+            resp = session.get(LIST_URL, params=params, timeout=TIMEOUT)
+            resp.raise_for_status()
+            return resp.content.decode("cp932", errors="replace")
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            log.warning("一覧の取得に失敗 (%d/%d): %s", attempt, RETRIES, exc)
+            if attempt < RETRIES:
+                time.sleep(2 * attempt)
+    raise RuntimeError(f"一覧の取得に {RETRIES} 回失敗しました") from last
 
 
 def fetch_html(session: requests.Session, url: str) -> tuple[str, str]:

@@ -33,6 +33,7 @@ HASHED_FIELDS = (
     "conditions",
     "combinable",
     "target_text",
+    "usable_plans",
 )
 
 
@@ -55,6 +56,12 @@ class Coupon:
     conditions: str = ""
     combinable: str = ""
     target_text: str = ""
+    # ここから下は一覧経由（施設クーポン）で埋まる。クーポンフェス側は空のまま。
+    title: str = ""
+    hotel_name: str = ""
+    area_name: str = ""
+    usable_plans: str = ""
+    min_spend: str = ""
     extras: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -81,6 +88,11 @@ class Coupon:
             "conditions": self.conditions,
             "combinable": self.combinable,
             "target_text": self.target_text,
+            "title": self.title,
+            "hotel_name": self.hotel_name,
+            "area_name": self.area_name,
+            "usable_plans": self.usable_plans,
+            "min_spend": self.min_spend,
             "content_hash": self.content_hash,
         }
 
