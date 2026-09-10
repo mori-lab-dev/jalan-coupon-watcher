@@ -43,6 +43,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           MIN_DISCOUNT_YEN: ${{ vars.MIN_DISCOUNT_YEN }}
+          MAX_MIN_SPEND_YEN: ${{ vars.MAX_MIN_SPEND_YEN }}
           NOTIFY_ON_SOLD_OUT: ${{ vars.NOTIFY_ON_SOLD_OUT }}
         run: >
           python -m jalan_watcher.main
