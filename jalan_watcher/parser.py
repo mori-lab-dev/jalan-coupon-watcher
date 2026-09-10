@@ -19,6 +19,13 @@ from dataclasses import asdict, dataclass, field
 from bs4 import BeautifulSoup, Tag
 
 CAMPAIGN_RE = re.compile(r"/discountCoupon/(CAM\d+)")
+# 利用条件から「いくら以上の予約で使えるか」を読む。実際の書き方は
+#   【予約金額】300,000円(税込)以上
+#   【予約金額】260,000円(税込)以上【大人人数】5名以上
+#   宿・ホテル予約：【予約金額】100,000円(税込)以上【泊数】2泊以上
+#     じゃらんパック予約：【合計旅行代金】150,000円(税込)以上
+MIN_SPEND_RE = re.compile(r"【\s*予約金額\s*】\s*([0-9][0-9,]*)\s*円")
+TRIP_TOTAL_RE = re.compile(r"【\s*合計旅行代金\s*】\s*([0-9][0-9,]*)\s*円")
 COUPON_ID_RE = re.compile(r"COU\d+")
 STOCK_RE = re.compile(r"先着予約数\s*([0-9,]+)")
 NUM_RE = re.compile(r"[0-9][0-9,]*")
@@ -35,6 +42,22 @@ HASHED_FIELDS = (
     "target_text",
     "usable_plans",
 )
+
+
+def extract_min_spend_yen(conditions: str) -> int | None:
+    """利用条件から必要な予約金額を読む。読めなければ None（＝条件不明）。
+
+    「予約金額」（宿・ホテル予約側）を優先し、それが無いときだけ
+    「合計旅行代金」（じゃらんパック側）で代用する。
+    同じ種類が複数書かれている場合は**いちばん安い額**を採る。
+    通知を絞りすぎて見逃すより、余計に通知するほうがましなため。
+    """
+    text = conditions or ""
+    for pattern in (MIN_SPEND_RE, TRIP_TOTAL_RE):
+        values = [int(v.replace(",", "")) for v in pattern.findall(text)]
+        if values:
+            return min(values)
+    return None
 
 
 @dataclass
@@ -65,6 +88,11 @@ class Coupon:
     extras: dict[str, str] = field(default_factory=dict)
 
     @property
+    def min_spend_yen(self) -> int | None:
+        """このクーポンを使うのに必要な予約金額。読み取れなければ None。"""
+        return extract_min_spend_yen(self.conditions)
+
+    @property
     def content_hash(self) -> str:
         payload = "|".join(f"{k}={asdict(self).get(k)!r}" for k in HASHED_FIELDS)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -93,6 +121,7 @@ class Coupon:
             "area_name": self.area_name,
             "usable_plans": self.usable_plans,
             "min_spend": self.min_spend,
+            "min_spend_yen": self.min_spend_yen,
             "content_hash": self.content_hash,
         }
 

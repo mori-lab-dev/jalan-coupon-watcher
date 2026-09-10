@@ -57,6 +57,9 @@ class Config:
     supabase_url: str = ""
     supabase_key: str = ""
     min_discount_yen: int = 0
+    # 利用条件の予約金額がこの額を超えるクーポンは通知しない（検知と保存はする）。
+    # 0 なら制限なし。条件を読み取れなかったものは通知する側に倒す。
+    max_min_spend_yen: int = 50000
     notify_on_sold_out: bool = False
     dry_run: bool = False
     request_delay_sec: float = 1.5
@@ -72,6 +75,7 @@ class Config:
             supabase_url=os.environ.get("SUPABASE_URL", "").strip().rstrip("/"),
             supabase_key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip(),
             min_discount_yen=_int("MIN_DISCOUNT_YEN", 0),
+            max_min_spend_yen=_int("MAX_MIN_SPEND_YEN", 50000),
             notify_on_sold_out=_bool("NOTIFY_ON_SOLD_OUT", False),
             dry_run=_bool("DRY_RUN", False),
             request_delay_sec=_float("REQUEST_DELAY_SEC", 1.5),

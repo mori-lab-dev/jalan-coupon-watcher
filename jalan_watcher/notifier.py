@@ -89,6 +89,8 @@ def _lines_for(e: Event) -> list[str]:
         lines.append(f"   宿       : {c.hotel_name}（{c.area_name or 'エリア不明'}）")
     if c.usable_plans:
         lines.append(f"   対象プラン: {c.usable_plans}")
+    if c.min_spend_yen is not None:
+        lines.append(f"   要予約額 : {c.min_spend_yen:,}円以上")
     lines += [
         f"   利用条件 : {c.conditions or '記載なし'}",
         f"   配布期間 : {c.distribute_period or '記載なし'}",

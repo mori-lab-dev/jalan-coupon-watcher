@@ -170,6 +170,18 @@ def diff_fields(before: dict, coupon: Coupon) -> list[str]:
     return out
 
 
+def over_budget(coupon: Coupon, cfg: Config) -> bool:
+    """予算に対して条件が高すぎるクーポンか。
+
+    条件を読み取れなかったものは False（＝通知する）に倒す。
+    見逃すより余計に届くほうがましなため。
+    """
+    if cfg.max_min_spend_yen <= 0:
+        return False
+    need = coupon.min_spend_yen
+    return need is not None and need > cfg.max_min_spend_yen
+
+
 def classify(
     coupons: list[Coupon], existing: dict[str, dict], cfg: Config
 ) -> tuple[list[Event], list[dict]]:
@@ -206,7 +218,17 @@ def classify(
         row["notified_at"] = (prev or {}).get("notified_at")
 
         if kind is not None and (c.discount_yen or 0) >= cfg.min_discount_yen:
-            events.append(Event(kind=kind, coupon=c, diff=diff))
+            if over_budget(c, cfg):
+                # 検知も保存もしたうえで、メールだけ出さない。
+                log.info(
+                    "予算超過のため通知を見送り: %s %s（要 %s円以上）%s",
+                    c.coupon_id[:14],
+                    c.discount_label,
+                    f"{c.min_spend_yen:,}",
+                    (c.hotel_name or c.region_name)[:24],
+                )
+            else:
+                events.append(Event(kind=kind, coupon=c, diff=diff))
 
         rows.append(row)
 

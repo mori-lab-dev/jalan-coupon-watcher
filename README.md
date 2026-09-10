@@ -90,7 +90,33 @@ RLS は有効にしたうえでポリシーを作っていない。service_role 
 | 名前 | 既定 | 意味 |
 |---|---|---|
 | `MIN_DISCOUNT_YEN` | `0` | この額未満のクーポンは通知しない。まずは `0` で全件通して動作確認する |
+| `MAX_MIN_SPEND_YEN` | `50000` | 利用条件の予約金額がこの額を超えるものは通知しない。`0` で無制限 |
 | `NOTIFY_ON_SOLD_OUT` | `false` | 配布終了への遷移も通知するか |
+
+### 予算に合わないクーポンを黙らせる
+
+高額クーポンほど「◯◯円以上の予約で使える」という条件が重い。
+30,000円分もらえても 300,000円の予約が要るなら、普段の旅行では使えない。
+
+`MAX_MIN_SPEND_YEN` は利用条件から読み取った必要予約金額を見て、
+超えるものを**通知だけ止める**（検知とDB保存はこれまでどおり続ける）。
+`NOTIFY_ON_SOLD_OUT` と同じ「検知はするが通知しない」扱い。
+
+読み取りは「予約金額」を優先し、無いときだけ「合計旅行代金」で代用する。
+同じ種類が複数書かれていれば安いほうを採る。
+**読み取れなかったものは通知する側に倒す** — 絞りすぎて見逃すより、
+余計に届くほうがましなため。読み取った額は `jalan_coupons.min_spend_yen` に残る。
+
+閾値を動かすと通知量がどう変わるかは、実データで試算できる。
+
+```sql
+select
+  count(*) filter (where min_spend_yen is null)   as unknown,
+  count(*) filter (where min_spend_yen <= 50000)  as within_50k,
+  count(*) filter (where min_spend_yen <= 65000)  as within_65k,
+  count(*) filter (where min_spend_yen <= 100000) as within_100k
+from public.jalan_coupons;
+```
 
 CLI で入れるなら:
 
