@@ -60,6 +60,12 @@ class Config:
     # 利用条件の予約金額がこの額を超えるクーポンは通知しない（検知と保存はする）。
     # 0 なら制限なし。条件を読み取れなかったものは通知する側に倒す。
     max_min_spend_yen: int = 50000
+    # 通知する地域。カンマ区切り（例: "九州沖縄"）。空なら制限なし。
+    # **検知と保存は従来どおり行い、メールだけ抑える**（max_min_spend_yen と同じ）。
+    notify_regions: str = ""
+    # 地域を特定できなかったクーポンを通知するか。
+    # 既定は True（見逃すより余計に届くほうがまし）。
+    notify_unknown_region: bool = True
     notify_on_sold_out: bool = False
     dry_run: bool = False
     request_delay_sec: float = 1.5
@@ -76,6 +82,8 @@ class Config:
             supabase_key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip(),
             min_discount_yen=_int("MIN_DISCOUNT_YEN", 0),
             max_min_spend_yen=_int("MAX_MIN_SPEND_YEN", 50000),
+            notify_regions=os.environ.get("NOTIFY_REGIONS", "").strip(),
+            notify_unknown_region=_bool("NOTIFY_UNKNOWN_REGION", True),
             notify_on_sold_out=_bool("NOTIFY_ON_SOLD_OUT", False),
             dry_run=_bool("DRY_RUN", False),
             request_delay_sec=_float("REQUEST_DELAY_SEC", 1.5),

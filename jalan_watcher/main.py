@@ -15,6 +15,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from .config import Config, region_name
+from .region import parse_regions, should_notify
 from .facility import parse_facility_page
 from .fetcher import fetch_html, fetch_region_links, fetch_listing_page, new_session
 from .listing import KIND_CAMPAIGN, KIND_FACILITY, ListingEntry, dedupe, parse_listing_page
@@ -182,6 +183,25 @@ def over_budget(coupon: Coupon, cfg: Config) -> bool:
     return need is not None and need > cfg.max_min_spend_yen
 
 
+def out_of_region(coupon: Coupon, cfg: Config) -> tuple[bool, str]:
+    """通知したい地域から外れているか。戻り値は (外れている, 理由)。
+
+    **検知も保存もそのまま行う。メールだけ出さない。**
+    地域を特定できなかったものは通知する側に倒す（over_budget と同じ考え方）。
+    """
+    allowed = parse_regions(cfg.notify_regions)
+    if not allowed:
+        return False, "地域の制限なし"
+    ok, why = should_notify(
+        allowed,
+        region_key=coupon.region_key or "",
+        region_name=coupon.region_name or "",
+        area_name=getattr(coupon, "area_name", "") or "",
+        notify_unknown=cfg.notify_unknown_region,
+    )
+    return (not ok), why
+
+
 def classify(
     coupons: list[Coupon], existing: dict[str, dict], cfg: Config
 ) -> tuple[list[Event], list[dict]]:
@@ -218,14 +238,24 @@ def classify(
         row["notified_at"] = (prev or {}).get("notified_at")
 
         if kind is not None and (c.discount_yen or 0) >= cfg.min_discount_yen:
+            # **予算と地域の両方を満たしたときだけ通知する（AND条件）。**
+            # どちらも「検知も保存もしたうえで、メールだけ出さない」。
+            outside, why = out_of_region(c, cfg)
             if over_budget(c, cfg):
-                # 検知も保存もしたうえで、メールだけ出さない。
                 log.info(
                     "予算超過のため通知を見送り: %s %s（要 %s円以上）%s",
                     c.coupon_id[:14],
                     c.discount_label,
                     f"{c.min_spend_yen:,}",
                     (c.hotel_name or c.region_name)[:24],
+                )
+            elif outside:
+                log.info(
+                    "対象地域外のため通知を見送り: %s %s %s [%s]",
+                    c.coupon_id[:14],
+                    c.discount_label,
+                    (c.hotel_name or c.region_name)[:24],
+                    why,
                 )
             else:
                 events.append(Event(kind=kind, coupon=c, diff=diff))

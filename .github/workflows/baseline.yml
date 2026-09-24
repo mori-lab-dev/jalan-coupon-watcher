@@ -45,6 +45,9 @@ jobs:
           MIN_DISCOUNT_YEN: ${{ vars.MIN_DISCOUNT_YEN }}
           MAX_MIN_SPEND_YEN: ${{ vars.MAX_MIN_SPEND_YEN }}
           NOTIFY_ON_SOLD_OUT: ${{ vars.NOTIFY_ON_SOLD_OUT }}
+          # 通知する地域。空なら制限なし。検知と保存は従来どおり行う
+          NOTIFY_REGIONS: ${{ vars.NOTIFY_REGIONS }}
+          NOTIFY_UNKNOWN_REGION: ${{ vars.NOTIFY_UNKNOWN_REGION }}
         run: >
           python -m jalan_watcher.main
           ${{ inputs.dry_run && '--dry-run' || '' }}
