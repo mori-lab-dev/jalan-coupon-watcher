@@ -129,6 +129,50 @@ check("他地域: 福島＋白河",
       region_of(region_key="listing", region_name="福島",
                 area_name="白河")[0], "東北")
 
+# ── 7-2. 対象欄（target_text）からの判定 ───────
+# かごしま観光応援割は region_name が「一覧」で area_name も空。
+# 地域が分かるのは対象欄だけ（「鹿児島県①（対象施設のみ）」）。
+check("対象欄: かごしま観光応援割",
+      region_of(region_key="listing", region_name="一覧", area_name="",
+                target_text="鹿児島県①（対象施設のみ）")[0], "九州沖縄")
+check("対象欄: 鹿児島県②も同じ",
+      region_of(region_key="listing", region_name="一覧", area_name="",
+                target_text="鹿児島県②（対象施設のみ）")[0], "九州沖縄")
+check("対象欄: 地域名そのもの",
+      region_of(region_key="listing", region_name="一覧", area_name="",
+                target_text="九州沖縄（クーポンフェス掲載宿のみ）")[0], "九州沖縄")
+
+# **対象欄には施設名が入ることがある。** 地区名まで拾うと宿の名前で誤判定する。
+# 都道府県・地域名だけで照合しているので、宿名からは判定しない。
+for hotel in ("志摩観光ホテル ザ クラシック", "エンゼルフォレスト白河高原",
+              "HOTEL OOSADO（ホテル大佐渡）", "変なホテル ラグーナテンボス",
+              "由布岳一望 朝霧のみえる宿 ゆふいん花由",
+              "宮古島来間リゾート シーウッドホテル"):
+    check(f"対象欄: 宿名では判定しない「{hotel[:12]}」",
+          region_of(region_key="listing", region_name="一覧", area_name="",
+                    target_text=hotel)[0], None)
+
+# 宿名に他地域の地名が入っていても、九州の宿を取り逃がさない
+check("対象欄: 宿名＋region_nameがあればそちらが勝つ",
+      region_of(region_key="listing", region_name="大分",
+                area_name="湯布院",
+                target_text="由布岳一望 朝霧のみえる宿 ゆふいん花由")[0],
+      "九州沖縄")
+
+# **対象欄はいちばん最後。** 既に判定できているものを上書きしない
+check("対象欄: region_name を上書きしない",
+      region_of(region_key="listing", region_name="福島", area_name="白河",
+                target_text="鹿児島県①（対象施設のみ）")[0], "東北")
+check("対象欄: 地域ボタンを上書きしない",
+      region_of(region_key="button-tohoku", region_name="東北",
+                target_text="鹿児島県①（対象施設のみ）")[0], "東北")
+
+# unknown=false でも かごしま分は残ること（この修正のいちばんの目的）
+check("対象欄: 不明を止める設定でも残る",
+      should_notify(KYUSHU, region_key="listing", region_name="一覧",
+                    area_name="", target_text="鹿児島県①（対象施設のみ）",
+                    notify_unknown=False)[0], True)
+
 # ── 8. 都道府県の対応表が47件そろっているか ────
 check("対応表: 47都道府県", len(PREF_TO_REGION), 47)
 check("対応表: 地域は10種類", len(set(PREF_TO_REGION.values())), 10)

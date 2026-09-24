@@ -197,6 +197,9 @@ def out_of_region(coupon: Coupon, cfg: Config) -> tuple[bool, str]:
         region_key=coupon.region_key or "",
         region_name=coupon.region_name or "",
         area_name=getattr(coupon, "area_name", "") or "",
+        # 「鹿児島県①（対象施設のみ）」のように対象欄にだけ地域が入る
+        # クーポンがある（かごしま観光応援割）。最後の手がかりとして見る
+        target_text=getattr(coupon, "target_text", "") or "",
         notify_unknown=cfg.notify_unknown_region,
     )
     return (not ok), why

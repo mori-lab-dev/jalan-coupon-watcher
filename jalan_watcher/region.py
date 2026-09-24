@@ -10,11 +10,23 @@ MAX_MIN_SPEND_YEN と同じ「検知はするが通知しない」やり方に�
     そのまま比べられる。
 
   Phase2（一覧経由）
-    region_key は listing。都道府県まで分かることが多いが、置き場所が2つある。
+    region_key は listing。都道府県まで分かることが多いが、置き場所が3つある。
       region_name … 施設型は詳細ページの都道府県（沖縄・大分など）
                     キャンペーン型は一覧の「エリア」（白河・志摩など）
       area_name   … 一覧の「エリア」。都道府県より細かい地区名
-    どちらも見て、都道府県まで辿れたら地域に直す。
+      target_text … クーポンの対象（「鹿児島県①（対象施設のみ）」など）
+    順に見て、都道府県まで辿れたら地域に直す。
+
+**target_text はいちばん最後に、都道府県・地域名だけで照合する。**
+ここには施設名が入ることがあり（「志摩観光ホテル ザ クラシック」
+「エンゼルフォレスト白河高原」など）、地区名まで拾うと
+宿の名前に含まれる地名で誤判定する。誤判定で怖いのは
+「九州の宿を別地域と判定して通知を止めてしまう」向きなので、
+照合はゆるくせず、地域名・都道府県名が出てくるときだけ採る。
+
+順番を最後にしているのは、**いまの判定結果を一切変えないため**。
+これまで判定できていたものはそのままで、
+「地域を特定できない」だった分だけが埋まる。
 
 **辿れなかったものは通知する側に倒す。** 見逃すより余計に届くほうがまし
 （over_budget と同じ考え方）。
@@ -113,8 +125,24 @@ def _pref_of(text: str) -> str | None:
     return None
 
 
+def _pref_of_strict(text: str) -> str | None:
+    """**都道府県名だけ**で拾う。地区名は見ない。
+
+    施設名が入りうる欄（target_text）に使う。地区名まで拾うと
+    「志摩観光ホテル」「エンゼルフォレスト白河高原」のような
+    宿の名前に含まれる地名で誤判定する。
+    """
+    if not text:
+        return None
+    t = text.strip()
+    for pref in PREF_TO_REGION:
+        if pref in t:
+            return pref
+    return None
+
+
 def region_of(*, region_key: str = "", region_name: str = "",
-              area_name: str = "") -> tuple[str | None, str]:
+              area_name: str = "", target_text: str = "") -> tuple[str | None, str]:
     """その クーポンの地域を決める。戻り値は (地域, 根拠)。
 
     分からなければ (None, 理由)。**推測で埋めない。**
@@ -135,17 +163,29 @@ def region_of(*, region_key: str = "", region_name: str = "",
         if pref:
             return PREF_TO_REGION[pref], f"{where}（{pref}）"
 
+    # **いちばん最後に対象欄を見る。** 施設名が入りうるので
+    # 都道府県・地域名だけで照合する（地区名は使わない）
+    tgt = (target_text or "").strip()
+    if tgt:
+        for region in REGION_KEYS.values():
+            if region in tgt:              # 「九州沖縄（クーポンフェス掲載宿のみ）」
+                return region, f"対象欄（{region}）"
+        pref = _pref_of_strict(tgt)
+        if pref:
+            return PREF_TO_REGION[pref], f"対象欄（{pref}）"
+
     return None, "地域を特定できない"
 
 
 def should_notify(allowed: set[str], *, region_key: str = "",
                   region_name: str = "", area_name: str = "",
+                  target_text: str = "",
                   notify_unknown: bool = True) -> tuple[bool, str]:
     """通知してよいか。戻り値は (通知する, 理由)。"""
     if not allowed:
         return True, "地域の制限なし"
     region, why = region_of(region_key=region_key, region_name=region_name,
-                            area_name=area_name)
+                            area_name=area_name, target_text=target_text)
     if region is None:
         # **分からないものは通知する側に倒す。** 見逃すより余計に届くほうがまし
         return notify_unknown, f"{why}（{'通知する' if notify_unknown else '通知しない'}）"
