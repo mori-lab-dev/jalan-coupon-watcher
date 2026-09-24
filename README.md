@@ -363,3 +363,70 @@ select still_available, count(*) from public.jalan_delist_checks group by 1;
 2万円まで下げると特定の1〜2件が数百行を占めて一覧が使い物にならなくなる。
 
 エンドポイントの構造調査メモはリポジトリには置いていない。
+
+
+## ダッシュボード用API（読み取り専用）
+
+現在の状態をメール以外でも見られるようにするための Edge Function。
+**読み取りのみ。検知・通知のロジックには触れていない。**
+
+```
+GET https://igsehzolzwgozzmebmbf.supabase.co/functions/v1/jalan-dashboard-api?key=<APIキー>
+```
+
+キーは `X-Api-Key` ヘッダでも渡せる。無い/違えば **401**、GET以外は **405**。
+
+### 返すもの
+
+| キー | 中身 |
+|---|---|
+| `filters` | いま適用している通知条件（地域・予算・不明の扱い） |
+| `counts` | 配布中の件数／条件を満たす件数／地域不明の件数 |
+| `coupons[]` | **配布中のクーポン全件**（`is_available=true`） |
+| `runs[]` | 直近の実行（既定20件・`?limit=` で変更可、最大100） |
+| `notified[]` | 実際にメール送信したもの（直近20件） |
+
+`coupons[]` の各件には次が入る。
+
+- `coupon_id` / `hotel_name` / `area_name` / `region_name` / `title`
+- `region`（10地域のどれか）と `region_why`（判定の根拠）
+- `discount_yen` / `discount_label` / `stock`（先着予約数）
+- `min_spend`（原文）/ `min_spend_yen`（読み取れた額）
+- `distribute_period` / `reserve_period` / `stay_period`
+- `url`（直リンク）/ `first_seen_at` / `last_seen_at` / `notified_at`
+- `matches_filters` … 地域と予算の**両方**を満たすか（AND）
+- `within_region` / `within_budget` … 内訳
+- `budget_unknown` … **予算を読み取れていない**とき true
+
+### 気をつけること
+
+- `matches_filters` は**表示用の再現**で、実際の通知可否は監視側（Python）が
+  決める。地域判定は `jalan_watcher/region.py` の写しなので、
+  **どちらかを直したら両方直す**
+- `budget_unknown` が true のものは、条件文が
+  `210,000円（税込）以上` のように `【予約金額】` の前置きが無く、
+  監視側が金額を取れていない。予算フィルタは通す側に倒れるので、
+  画面では「予算不明」と出すのが正しい（実測で配布中102件のうち7件）
+- キーは `~/.private/jalan_dashboard_api_key` に置いてある。
+  **リポジトリには入れない。** Supabase側のシークレット
+  `DASHBOARD_API_KEY` に設定済み
+
+### 設定しているシークレット（Supabase側）
+
+```
+DASHBOARD_API_KEY        このAPIの共有キー
+NOTIFY_REGIONS           九州沖縄
+MAX_MIN_SPEND_YEN        50000
+NOTIFY_UNKNOWN_REGION    true
+```
+
+GitHub Actions の Variable と**同じ値を入れておく**こと。
+片方だけ変えると、画面の「条件を満たす」と実際の通知がずれる。
+
+### デプロイ
+
+```sh
+export SUPABASE_ACCESS_TOKEN=$(cat ~/.private/supabase_access_token)
+supabase functions deploy jalan-dashboard-api \
+  --project-ref igsehzolzwgozzmebmbf --no-verify-jwt
+```
