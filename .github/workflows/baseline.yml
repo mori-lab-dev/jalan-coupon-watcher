@@ -28,7 +28,17 @@ jobs:
   watch:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # 見張り（healthchecks.io）。台帳は mori-lab-dev/morilab-ops の jobs.yaml。
+    # 手動の dry_run / seed / check_mail は通知経路を通らないので見張りに数えない。
+    # secret HC_PING_KEY が無ければ何もしない。
+    env:
+      HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
+      HC_SLUG: jalan-baseline
+      HC_ENABLED: ${{ !inputs.dry_run && !inputs.seed && !inputs.check_mail }}
     steps:
+      - name: 見張り（開始）
+        if: env.HC_PING_KEY != '' && env.HC_ENABLED == 'true'
+        run: curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/$HC_PING_KEY/$HC_SLUG/start" || echo "::warning::healthchecks へ送れませんでした"
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -53,3 +63,13 @@ jobs:
           ${{ inputs.dry_run && '--dry-run' || '' }}
           ${{ inputs.seed && '--seed' || '' }}
           ${{ inputs.check_mail && '--check-mail' || '' }}
+      - name: 見張り（終了）
+        # cancelled（concurrency で押し出された回）では送らない。次の回が送る
+        if: always() && env.HC_PING_KEY != '' && env.HC_ENABLED == 'true' && job.status != 'cancelled'
+        env:
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then s=""; else s="/fail"; fi
+          curl -fsS -m 10 --retry 3 -o /dev/null --data-raw "status=$JOB_STATUS $RUN_URL" \
+            "https://hc-ping.com/$HC_PING_KEY/$HC_SLUG$s" || echo "::warning::healthchecks へ送れませんでした"
