@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import html
 import logging
+import socket
+import time
 import urllib.error
 import urllib.request
 import json as json_lib
@@ -191,30 +193,54 @@ def check_login(supabase_url: str, supabase_key: str) -> None:
         )
 
 
+# 2026-11-05 に、通知の呼び出しが 30 秒の読み取りタイムアウトで4回続けて失敗し、
+# 通知が約14時間遅れた。待ち時間を 60 秒に延ばし、一時的な失敗は間隔をあけて取り直す。
+# 注意: タイムアウトでも送信側ではメールが出ている場合があり、そのときは同じ通知が2通届く。
+#       取りこぼし（遅延）より二重通知のほうが害が小さいため、取り直す側に倒している。
+EDGE_TIMEOUT_SEC = 60
+EDGE_RETRY_WAITS_SEC = (10, 30)  # 1回目の失敗のあと10秒、2回目のあと30秒。計3回まで試す
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """取り直してよい失敗か。タイムアウト・接続の失敗・5xx・429 だけ。"""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500 or exc.code == 429
+    return isinstance(exc, (TimeoutError, socket.timeout, urllib.error.URLError, ConnectionError))
+
+
 def _call_edge_function(supabase_url: str, supabase_key: str, *, subject: str,
-                         text: str, body_html: str | None = None) -> dict:
+                         text: str, body_html: str | None = None,
+                         _sleep=time.sleep) -> dict:
     url = f"{supabase_url}/functions/v1/notify-jalan"
     payload = {"subject": subject, "text": text}
     if body_html:
         payload["html"] = body_html
-    req = urllib.request.Request(
-        url,
-        data=json_lib.dumps(payload).encode("utf-8"),
-        headers={
-            "apikey": supabase_key,
-            "Authorization": f"Bearer {supabase_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json_lib.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"notify-jalan呼び出しに失敗(HTTP {exc.code}): {body[:300]}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"notify-jalanに接続できません: {exc}") from exc
+    data = json_lib.dumps(payload).encode("utf-8")
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+    }
+    attempts = len(EDGE_RETRY_WAITS_SEC) + 1
+    for i in range(attempts):
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=EDGE_TIMEOUT_SEC) as resp:
+                return json_lib.loads(resp.read().decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            last = i == attempts - 1
+            if not _is_retryable(exc) or last:
+                if isinstance(exc, urllib.error.HTTPError):
+                    body = exc.read().decode("utf-8", errors="replace")
+                    raise RuntimeError(f"notify-jalan呼び出しに失敗(HTTP {exc.code}): {body[:300]}") from exc
+                if isinstance(exc, urllib.error.URLError):
+                    raise RuntimeError(f"notify-jalanに接続できません: {exc}") from exc
+                raise
+            wait = EDGE_RETRY_WAITS_SEC[i]
+            log.warning("notify-jalan の呼び出しが失敗（%d/%d回目: %s）。%d秒後に取り直します",
+                        i + 1, attempts, type(exc).__name__, wait)
+            _sleep(wait)
+    raise AssertionError("unreachable")
 
 
 def send(
